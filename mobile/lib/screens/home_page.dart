@@ -3,7 +3,7 @@ import '../services/auth_service.dart';
 import '../services/api_service.dart';
 import '../models/estacion.dart';
 import 'login_screen.dart';
-import 'add_estacion.dart'; // Importamos la pantalla que creaste antes
+import 'add_estacion.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -13,12 +13,61 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> {
-  // Instanciamos tu servicio de API para usarlo en la lista
   final ApiService _apiService = ApiService();
+  late Future<List<Estacion>> _estacionesFuture;
 
-  // Función para recargar la lista cuando volvemos de agregar una estación
-  void _refrescarLista() {
-    setState(() {});
+  @override
+  void initState() {
+    super.initState();
+    _refrescarDatos();
+  }
+
+  void _refrescarDatos() {
+    setState(() {
+      _estacionesFuture = _apiService.fetchEstaciones();
+    });
+  }
+
+  void _mostrarDialogoEdicion(Estacion estacion) {
+    final nombreCtrl = TextEditingController(text: estacion.nombre);
+    final ubicacionCtrl = TextEditingController(text: estacion.ubicacion);
+
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text("Editar Estación"),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(controller: nombreCtrl, decoration: const InputDecoration(labelText: "Nombre")),
+            TextField(controller: ubicacionCtrl, decoration: const InputDecoration(labelText: "Ubicación")),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text("Cancelar")),
+          ElevatedButton(
+            onPressed: () async {
+              bool ok = await _apiService.editarEstacion(estacion.id, nombreCtrl.text, ubicacionCtrl.text);
+              
+              if (!context.mounted) return;
+
+              if (ok) {
+                Navigator.pop(context);
+                _refrescarDatos();
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text("Estación actualizada con éxito")),
+                );
+              } else {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text("Error al actualizar la estación")),
+                );
+              }
+            },
+            child: const Text("Guardar"),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -31,7 +80,7 @@ class _HomePageState extends State<HomePage> {
             icon: const Icon(Icons.logout),
             onPressed: () async {
               await AuthService().logout();
-              if (!mounted) return;
+              if (!context.mounted) return;
               Navigator.pushAndRemoveUntil(
                 context,
                 MaterialPageRoute(builder: (context) => const LoginScreen()),
@@ -41,70 +90,83 @@ class _HomePageState extends State<HomePage> {
           )
         ],
       ),
-      
-      // FutureBuilder se encarga de llamar a fetchEstaciones() y construir la interfaz
-      body: FutureBuilder<List<Estacion>>(
-        future: _apiService.fetchEstaciones(),
-        builder: (context, snapshot) {
-          
-          // ESTADO 1: Cargando (Muestra un círculo de progreso)
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          }
-
-          // ESTADO 2: Error (Muestra qué falló)
-          if (snapshot.hasError) {
-            return Center(
-              child: Text(
-                'Error al cargar: ${snapshot.error}',
-                style: const TextStyle(color: Colors.red),
-                textAlign: TextAlign.center,
-              ),
-            );
-          }
-
-          // ESTADO 3: Vacío (No hay estaciones en la base de datos)
-          if (!snapshot.hasData || snapshot.data!.isEmpty) {
-            return const Center(
-              child: Text(
-                'Aún no hay estaciones registradas.\n¡Agrega una nueva!',
-                textAlign: TextAlign.center,
-              ),
-            );
-          }
-
-          // ESTADO 4: Éxito (Construye la lista con los datos)
-          final estaciones = snapshot.data!;
-          return ListView.builder(
-            itemCount: estaciones.length,
-            itemBuilder: (context, index) {
-              final estacion = estaciones[index];
-              return Card(
-                margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                child: ListTile(
-                  leading: const Icon(Icons.sensors, color: Colors.blue),
-                  // Asegúrate de que tu modelo 'estacion.dart' tenga 'nombre' y 'ubicacion'
-                  title: Text(estacion.nombre, style: const TextStyle(fontWeight: FontWeight.bold)),
-                  subtitle: Text(estacion.ubicacion),
-                ),
-              );
-            },
-          );
+      body: RefreshIndicator(
+        onRefresh: () async {
+          _refrescarDatos();
+          await _estacionesFuture; 
         },
-      ),
+        child: FutureBuilder<List<Estacion>>(
+          future: _estacionesFuture,
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return const Center(child: CircularProgressIndicator());
+            }
 
-      // Botón flotante para ir a la pantalla de agregar
+            if (snapshot.hasError) {
+              return Center(
+                child: Text('Error: ${snapshot.error}', style: const TextStyle(color: Colors.red)),
+              );
+            }
+
+            if (!snapshot.hasData || snapshot.data!.isEmpty) {
+              return ListView(
+                children: const [
+                  SizedBox(height: 300),
+                  Center(child: Text('No hay estaciones registradas.')),
+                ],
+              );
+            }
+
+            final estaciones = snapshot.data!;
+            return ListView.builder(
+              itemCount: estaciones.length,
+              physics: const AlwaysScrollableScrollPhysics(),
+              itemBuilder: (context, index) {
+                final estacion = estaciones[index];
+
+                final colorAlerta = estacion.ultimaLectura < 50 ? Colors.green : Colors.red;
+
+                return Dismissible(
+                  key: Key(estacion.id.toString()),
+                  direction: DismissDirection.endToStart,
+                  background: Container(
+                    color: Colors.red,
+                    alignment: Alignment.centerRight,
+                    padding: const EdgeInsets.only(right: 20),
+                    child: const Icon(Icons.delete, color: Colors.white),
+                  ),
+                  onDismissed: (direction) async {
+                    bool ok = await _apiService.eliminarEstacion(estacion.id);
+                    if (ok && context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text("${estacion.nombre} eliminada")),
+                      );
+                    }
+                    _refrescarDatos();
+                  },
+                  child: Card(
+                    margin: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                    child: ListTile(
+                      leading: Icon(Icons.sensors, color: colorAlerta),
+                      title: Text(estacion.nombre, style: const TextStyle(fontWeight: FontWeight.bold)),
+                      subtitle: Text(estacion.ubicacion),
+                      onTap: () => _mostrarDialogoEdicion(estacion),
+                    ),
+                  ),
+                );
+              },
+            );
+          },
+        ),
+      ),
       floatingActionButton: FloatingActionButton(
         onPressed: () async {
-          // Navegamos a AddEstacionScreen y esperamos a que el usuario vuelva
           final resultado = await Navigator.push(
             context,
             MaterialPageRoute(builder: (context) => AddEstacionScreen()),
           );
-          
-          // Si el resultado es true (la estación se guardó), recargamos la lista
           if (resultado == true) {
-            _refrescarLista();
+            _refrescarDatos();
           }
         },
         child: const Icon(Icons.add),
