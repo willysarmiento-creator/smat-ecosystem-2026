@@ -10,9 +10,17 @@ class ApiService {
 
   Future<List<Estacion>> fetchEstaciones() async {
     try {
-      final response = await http
-          .get(Uri.parse('$baseUrl/estaciones/'))
-          .timeout(const Duration(seconds: 5)); // Evita esperas infinitas
+      // 1. Obtenemos el token guardado del usuario que inició sesión
+      final token = await AuthService().getToken(); 
+      
+      // 2. Enviamos el token en los headers de la petición GET
+      final response = await http.get(
+        Uri.parse('$baseUrl/estaciones/'),
+        headers: {
+          'Authorization': 'Bearer $token',
+        },
+      ).timeout(const Duration(seconds: 5));
+
       if (response.statusCode == 200) {
         List jsonResponse = json.decode(response.body);
         return jsonResponse.map((data) => Estacion.fromJson(data)).toList();
@@ -20,10 +28,7 @@ class ApiService {
         throw Exception('Error del servidor: ${response.statusCode}');
       }
     } catch (e) {
-      // Esto evita que la App se cierre inesperadamente
-      throw Exception(
-        'No se pudo conectar con SMAT. ¿Está el servidor activo?',
-      );
+      throw Exception('No se pudo conectar con SMAT. ¿Está el servidor activo?');
     }
   }
 

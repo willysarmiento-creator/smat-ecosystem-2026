@@ -19,9 +19,25 @@ app.add_middleware(
 def login():
     return {"access_token": auth.crear_token({"sub": "admin_fisi"}), "token_type": "bearer"}
 
-@app.get("/estaciones/", response_model=list[schemas.Estacion], tags=["SMAT"])
-def listar_estaciones(db: Session = Depends(database.get_db)):
-    return db.query(models.EstacionDB).all()
+@app.get("/estaciones/")
+def listar_estaciones(db: Session = Depends(database.get_db), user=Depends(auth.validar_token)):
+    estaciones = db.query(models.EstacionDB).all()
+    
+    resultado = []
+    for est in estaciones:
+        ultima_lectura = db.query(models.LecturaDB).filter(
+            models.LecturaDB.estacion_id == est.id
+        ).order_by(models.LecturaDB.id.desc()).first()
+        
+        datos_estacion = {
+            "id": est.id,
+            "nombre": est.nombre,
+            "ubicacion": est.ubicacion,
+            "ultima_lectura": ultima_lectura.valor if ultima_lectura else 0.0 
+        }
+        resultado.append(datos_estacion)
+        
+    return resultado
 
 @app.post("/estaciones/", tags=["SMAT"])
 def crear_estacion(estacion: schemas.EstacionCreate, db: Session = Depends(database.get_db), user=Depends(auth.validar_token)):
