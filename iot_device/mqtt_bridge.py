@@ -3,23 +3,28 @@ import requests
 import json
 import time
 import sys
+import os  
 
 MQTT_BROKER = "broker.hivemq.com"
 MQTT_PORT = 1883
 MQTT_TOPIC = "fisi/smat/estaciones/+/lecturas" # Wildcard para estaciones
-API_URL = "http://127.0.0.1:8000/lecturas/"
-JWT_TOKEN = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhZG1pbl9maXNpIiwiZXhwIjoxNzgxMTEzMjgxfQ.8ZNIbJprr1Xt_67Kj7KhlBA06gfJhx3QTPkyvCw1i-s"
 
-# memoria cahé local
+API_URL = os.environ.get("API_URL", "http://127.0.0.1:8000/lecturas/")
+JWT_TOKEN = os.environ.get(
+    "JWT_TOKEN", 
+    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhZG1pbl9maXNpIiwiZXhwIjoxNzgxMTEzMjgxfQ.8ZNIbJprr1Xt_67Kj7KhlBA06gfJhx3QTPkyvCw1i-s"
+)
+
+# memoria caché local
 cache_lecturas = {}
 
 def on_connect(client, userdata, flags, rc, properties):
     if rc == 0:
-        print("✅ Conectado exitosamente al Broker MQTT")
+        print("✅ Conectado exitosamente al Broker MQTT", flush=True)
         client.subscribe(MQTT_TOPIC)
-        print(f"📡 Escuchando transmisiones en el tópico: {MQTT_TOPIC}")
+        print(f"📡 Escuchando transmisiones en el tópico: {MQTT_TOPIC}", flush=True)
     else:
-        print(f"❌ Error de conexión al Broker. Código de retorno: {rc}")
+        print(f"❌ Error de conexión al Broker. Código de retorno: {rc}", flush=True)
         sys.exit(1)
 
 def on_message(client, userdata, msg):
@@ -40,9 +45,9 @@ def on_message(client, userdata, msg):
         nuevo_valor = float(data_json["valor"])
         tiempo_actual = time.time()
         
-        print(f"\n📥 Telemetría recibida MQTT -> Estación [{estacion_id}]: {nuevo_valor} cm")
+        print(f"\n📥 Telemetría recibida MQTT -> Estación [{estacion_id}]: {nuevo_valor} cm", flush=True)
 
-        # filtro por umba+ral de cambio
+        # filtro por umbral de cambio
         debe_enviar = False
         
         if estacion_id not in cache_lecturas:
@@ -65,7 +70,7 @@ def on_message(client, userdata, msg):
                     debe_enviar = True
                     razon = f"Cambio brusco (>5%. Anterior: {valor_anterior})"
                 else:
-                    print("🛡️ [FILTRO EDGE ACTIVO] Dato redundante descartado para proteger la base de datos.")
+                    print("🛡️ [FILTRO EDGE ACTIVO] Dato redundante descartado para proteger la base de datos.", flush=True)
 
         if debe_enviar:
             # 3. Preparar datos para la API
@@ -83,18 +88,18 @@ def on_message(client, userdata, msg):
             response = requests.post(API_URL, json=api_payload, headers=headers)
             
             if response.status_code in (200, 201):
-                print(f"🚀 [DB Sincronizada] Guardado en SQLite. Razón: {razon}")
+                print(f"🚀 [DB Sincronizada] Guardado en SQLite. Razón: {razon}", flush=True)
                 # Actualizar la caché local solo si se guardó con éxito
                 cache_lecturas[estacion_id] = {"valor": nuevo_valor, "tiempo": tiempo_actual}
             else:
-                print(f"❌ [Fallo de Ingesta] API rechazó el dato. Código: {response.status_code}")
+                print(f"❌ [Fallo de Ingesta] API rechazó el dato. Código: {response.status_code}", flush=True)
 
     except KeyError as e:
-        print(f"⚠️ Error de esquema: Falta la llave {e} en el payload MQTT.")
+        print(f"⚠️ Error de esquema: Falta la llave {e} en el payload MQTT.", flush=True)
     except ValueError:
-        print("⚠️ Error de casteo: El valor o el ID no son numéricos.")
+        print("⚠️ Error de casteo: El valor o el ID no son numéricos.", flush=True)
     except Exception as e:
-        print(f"❌ Error crítico en el Bridge: {e}")
+        print(f"❌ Error crítico en el Bridge: {e}", flush=True)
 
 def main():
     bridge_client = mqtt.Client(callback_api_version=mqtt.CallbackAPIVersion.VERSION2)
@@ -102,11 +107,11 @@ def main():
     bridge_client.on_message = on_message
     
     try:
-        print("🛠️ Inicializando el Bridge de Acoplamiento SMAT con Filtro de Borde...")
+        print("🛠️ Inicializando el Bridge de Acoplamiento SMAT con Filtro de Borde...", flush=True)
         bridge_client.connect(MQTT_BROKER, MQTT_PORT, 60)
         bridge_client.loop_forever()
     except KeyboardInterrupt:
-        print("\n🛑 Bridge detenido por el administrador.")
+        print("\n🛑 Bridge detenido por el administrador.", flush=True)
 
 if __name__ == "__main__":
     main()
